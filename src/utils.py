@@ -9,8 +9,14 @@ import matplotlib.pyplot as plt
 
 
 def setup_chinese_font():
-    """配置 Matplotlib 中文字体。"""
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS']
+    """配置 Matplotlib 中文字体（跨平台自动探测可用字体）。"""
+    import matplotlib.font_manager as font_manager
+    candidates = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS',
+                  'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans CJK JP',
+                  'WenQuanYi Zen Hei', 'Heiti SC']
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    usable = [f for f in candidates if f in available]
+    plt.rcParams['font.sans-serif'] = usable if usable else candidates
     plt.rcParams['axes.unicode_minus'] = False
 
 

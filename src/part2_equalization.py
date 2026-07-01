@@ -39,7 +39,18 @@ def estimate_zf_equalizer(channel, num_taps):
         raise ValueError('num_taps 必须为正整数')
 
     # TODO: 构造卷积矩阵并求解 ZF 均衡器抽头。
-    raise NotImplementedError('请实现 ZF 均衡器估计')
+    channel_len = len(channel)
+    conv_len = channel_len + num_taps - 1
+    conv_matrix = np.zeros((conv_len, num_taps))
+    for m in range(num_taps):
+        conv_matrix[m:m + channel_len, m] = channel
+
+    center = conv_len // 2
+    desired = np.zeros(conv_len)
+    desired[center] = 1.0
+
+    taps, *_ = np.linalg.lstsq(conv_matrix, desired, rcond=None)
+    return taps
 
 
 def apply_fir_filter(signal, taps):
@@ -59,7 +70,8 @@ def apply_fir_filter(signal, taps):
         raise ValueError('signal 和 taps 必须是一维数组')
 
     # TODO: 使用 np.convolve，并截取与 signal 等长的输出。
-    raise NotImplementedError('请实现 FIR 滤波')
+    filtered = np.convolve(signal, taps, mode='full')[: len(signal)]
+    return filtered
 
 
 def lms_equalizer(rx_train, tx_train, num_taps, step_size=0.01):
@@ -90,7 +102,21 @@ def lms_equalizer(rx_train, tx_train, num_taps, step_size=0.01):
         raise ValueError('num_taps 必须为正整数')
 
     # TODO: 实现 LMS 自适应均衡训练。
-    raise NotImplementedError('请实现 LMS 均衡器')
+    n = len(rx_train)
+    taps = np.zeros(num_taps)
+    center = num_taps // 2
+    taps[center] = 1.0  # 中心抽头初始化为 1
+
+    errors = []
+    for idx in range(num_taps - 1, n):
+        x_vec = rx_train[idx - num_taps + 1: idx + 1][::-1]  # 最近的样本在前
+        y = np.dot(taps, x_vec)
+        desired = tx_train[idx]  # 与当前时刻符号直接对齐（信道主径无延时）
+        error = desired - y
+        taps = taps + step_size * error * x_vec
+        errors.append(error)
+
+    return taps, np.array(errors, dtype=float)
 
 
 def run_equalization_demo():

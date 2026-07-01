@@ -49,7 +49,9 @@ def hamming74_encode(bits):
         raise ValueError('bits 只能包含 0 或 1')
 
     # TODO: 将 bits reshape 为 (-1, 4)，再与 HAMMING_G 相乘并对 2 取模。
-    raise NotImplementedError('请实现 Hamming(7,4) 编码')
+    blocks = bits.reshape(-1, 4)
+    encoded = (blocks @ HAMMING_G) % 2
+    return encoded.reshape(-1)
 
 
 def hamming74_syndrome(codewords):
@@ -71,7 +73,8 @@ def hamming74_syndrome(codewords):
         raise ValueError('每个 Hamming(7,4) 码字长度必须为 7')
 
     # TODO: 计算 s = r H^T mod 2。
-    raise NotImplementedError('请实现伴随式计算')
+    syndromes = (codewords @ HAMMING_H.T) % 2
+    return syndromes
 
 
 def hamming74_decode(received):
@@ -95,7 +98,16 @@ def hamming74_decode(received):
         raise ValueError('received 必须是一维数组，长度为 7 的倍数')
 
     # TODO: 使用 hamming74_syndrome 完成单比特纠错，并返回前 4 个信息位。
-    raise NotImplementedError('请实现 Hamming(7,4) 译码')
+    codewords = received.reshape(-1, 7).copy()
+    syndromes = hamming74_syndrome(codewords)
+    for i, syndrome in enumerate(syndromes):
+        if np.any(syndrome):
+            matches = np.all(HAMMING_H == syndrome.reshape(-1, 1), axis=0)
+            if np.any(matches):
+                error_pos = int(np.argmax(matches))
+                codewords[i, error_pos] ^= 1
+    decoded_bits = codewords[:, :4].reshape(-1)
+    return decoded_bits
 
 
 def convolutional_encode(bits):
@@ -108,8 +120,17 @@ def convolutional_encode(bits):
     if not np.all((bits == 0) | (bits == 1)):
         raise ValueError('bits 只能包含 0 或 1')
 
-    # TODO: 选做任务，可参考课件第6章卷积码部分。
-    raise NotImplementedError('选做：请实现卷积码编码')
+    # 状态 (s1, s2) 表示前两个输入比特，g1=111 -> o1=b^s1^s2, g2=101 -> o2=b^s2
+    padded = np.concatenate([bits, [0, 0]])  # 补 2 个尾比特使状态回到 00
+    s1, s2 = 0, 0
+    output = []
+    for b in padded:
+        o1 = b ^ s1 ^ s2
+        o2 = b ^ s2
+        output.extend([o1, o2])
+        s2 = s1
+        s1 = b
+    return np.array(output, dtype=int)
 
 
 def viterbi_decode_hard(received_bits):
@@ -120,8 +141,61 @@ def viterbi_decode_hard(received_bits):
     if len(received_bits) % 2 != 0:
         raise ValueError('卷积码接收序列长度必须是 2 的倍数')
 
-    # TODO: 选做任务，可使用汉明距离作为路径度量。
-    raise NotImplementedError('选做：请实现 Viterbi 硬判决译码')
+    n_steps = len(received_bits) // 2
+    pairs = received_bits.reshape(n_steps, 2)
+
+    num_states = 4
+    inf = float('inf')
+
+    # 状态转移表: (state, input_bit) -> (next_state, (o1, o2))
+    transitions = {}
+    for state in range(num_states):
+        s1, s2 = state // 2, state % 2
+        for b in (0, 1):
+            o1 = b ^ s1 ^ s2
+            o2 = b ^ s2
+            next_state = b * 2 + s1
+            transitions[(state, b)] = (next_state, (o1, o2))
+
+    path_metric = np.full(num_states, inf)
+    path_metric[0] = 0.0  # 编码器从全零状态开始
+    predecessors = [np.full(num_states, -1, dtype=int)]
+    inputs_used = [np.full(num_states, -1, dtype=int)]
+
+    for t in range(n_steps):
+        new_metric = np.full(num_states, inf)
+        pred = np.full(num_states, -1, dtype=int)
+        inp = np.full(num_states, -1, dtype=int)
+        for state in range(num_states):
+            if not np.isfinite(path_metric[state]):
+                continue
+            for b in (0, 1):
+                next_state, (o1, o2) = transitions[(state, b)]
+                dist = int(o1 != pairs[t, 0]) + int(o2 != pairs[t, 1])
+                metric = path_metric[state] + dist
+                if metric < new_metric[next_state]:
+                    new_metric[next_state] = metric
+                    pred[next_state] = state
+                    inp[next_state] = b
+        path_metric = new_metric
+        predecessors.append(pred)
+        inputs_used.append(inp)
+
+    # 尾比特使编码器强制回到全零状态，因此从状态 0 回溯
+    state = 0
+    decoded = []
+    for t in range(n_steps, 0, -1):
+        b = inputs_used[t][state]
+        decoded.append(b)
+        state = predecessors[t][state]
+    decoded.reverse()
+
+    # 去掉编码时补的 2 个尾比特
+    if len(decoded) >= 2:
+        decoded_bits = np.array(decoded[:-2], dtype=int)
+    else:
+        decoded_bits = np.array(decoded, dtype=int)
+    return decoded_bits
 
 
 def run_coding_demo():
